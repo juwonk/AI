@@ -3,10 +3,47 @@ import sys
 import pandas as pd
 import numpy as np
 from scipy import stats
+import matplotlib.pyplot as plt
+import copy as cp
+import re
+from collections import Counter
 
 def LoadINPUT(file):
     D1 = pd.read_csv(file, index_col=0)
     return(D1.iloc[:-1,:], D1.loc['Group',:]) #return : (x, y) y~last column named 'Group' & [0.1/0.9]
+
+def OTU2DF_log2(mc2, Smp_filter_otu = 1000, RelativeAbundance = True): ## input from qiime1 profiling
+    DT1 = pd.read_csv(mc2, sep="\t", skiprows=1, index_col=0)
+    
+    ## OTU 1000 filter
+    
+    ## D_0__ 제거
+    ## Mitochondria/Chloroplast 제거
+    idx_filt = [(re.search("D_0__", x) == None) and \
+                (re.search("Mitochondria", x) == None) and \
+                (re.search("Chloroplast", x) == None) for x in DT1.taxonomy]
+    DT1 = DT1[idx_filt]
+    ## g__unculture/unidentified ~~ -> unidentified 통일
+    DT1.taxonomy = [re.sub("; g__.*", "; g__unidentified; s__unidentified", tx) if re.search('g_un', tx) != None else tx for tx in DT1.taxonomy]
+    
+    DicX = {}
+    for tx in range(len(DT1['taxonomy'])):
+        txSplt = DT1['taxonomy'][tx].split("; s__")
+        if len(txSplt) == 2:
+            taxID = txSplt[0]
+            try:
+                DicX[taxID] = DicX[taxID] + DT1.iloc[tx,:-1]
+            except :
+                DicX[taxID] = DT1.iloc[tx,:-1]
+
+    Xdf = pd.DataFrame.from_dict(DicX)
+    DataIN = (Xdf[Xdf.sum(axis=1) >= Smp_filter_otu]+1).applymap(np.log2).T
+    DataOUT = Xdf[Xdf.sum(axis=1) < Smp_filter_otu].T
+    
+    if RelativeAbundance is True:
+        DataIN = DataIN/DataIN.sum()
+    
+    return(DataIN, DataOUT)
 
 def FeatureStats(data, label, pval = 0.05):    
     TaxaIDs = []
